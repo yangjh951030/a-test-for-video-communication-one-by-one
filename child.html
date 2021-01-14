@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <!-- <meta  http-equiv="Content-Security-Policy" content="script-src 'self' unsafe-inline"> 
+            暂时不设置这里了，否则只能使用src引入js的方式，内敛script会有安全性问题-->
+        <title>单人视频通信</title>
+    </head>
+    <body>
+        <div class="title">
+            <div id="titleName">单人视频通信</div>
+            <div class="titleOperation">
+                <span id="smallBtn">最小化</span>
+                <span id="returnBtn">还原</span>
+                <span id="closeBtn">X</span>
+            </div>
+        </div>
+        <div class="content">
+            <div class="videoContent" >
+                <video id="ownVideo">您的浏览器不支持video</video>
+                <video id="remoteVideo" >您的浏览器不支持video</video>
+            </div>
+            <div class="connectConetent">
+                <div class="loginContent">
+                    <input type="text" id="account" placeholder="输入您的名字">
+                    <button onclick="login()">login</button>
+                </div>
+                <div>
+                    <input type="text" id="callones"  placeholder="输入您要视频通信的人">
+                    <button id="callSomeone"> connect</button>
+                </div>
+                <div>
+                    <input type="text" id="messageValue"  placeholder="输入消息">
+                    <button id="sendMsgBtn">sending</button>
+                </div>
+                <div class="hangup" >
+                    <button onclick="hangup()" style="min-width:290px;width: 50%;">挂  断</button>
+                </div>
+                <!-- <button onclick="camarerOpen()"> open you camarer</button> -->
+            </div>
+            <div id="getMessage"></div>
+        </div>
+    </body>
+</html>
+<script src="operation.js"></script>
+<style>
+    *{
+        box-sizing: border-box;
+    }
+    body{ 
+        margin: 0px;
+        padding: 0px;
+        border-radius: 5px;
+    }
+    ::-webkit-scrollbar{
+        background: gray;
+        width: 5px;
+        height: 5px;
+    }
+    ::-webkit-scrollbar-track{
+        background: brown;
+    }
+    ::-webkit-scrollbar-thumb{
+        background: black;
+        width: 5px;
+    }
+    @keyframes colorChange {
+        from {
+            background: green;
+        }
+        to {
+            background: red;
+        }
+    }
+    .changeColor {
+        animation: colorChange 1s ease-out ;
+    }
+    .title{
+        position: fixed;
+        top:0px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 30px;
+        background: rgb(74, 74, 236);
+        z-index: 9999;
+        -webkit-app-region: drag; /* 设置可以拖拽*/
+    }
+    .titleName{
+        color: black;
+        font-size: 1rem;
+    }
+    .titleOperation{
+       position: absolute;
+       right: 0px;
+    }
+    span{
+        display: inline-block;
+        margin-right: 5px;
+        cursor: pointer; 
+        -webkit-app-region: no-drag; /* 设置不可以拖拽，否则影响到设置*/
+    }
+    input {
+        outline: none;
+        margin-right: 10px;
+    }
+    button {
+        width: 100px;
+        outline: none;
+    }
+    .content{
+        position: absolute;
+        top:45px;
+        width: 60%;
+        left:20%;
+        min-width: 500px;
+        height: calc(100vh - 50px);
+        margin: 0 auto;
+        box-sizing: border-box;
+        border:black 2px solid;
+    }
+    .videoContent{
+        position: relative;
+        width: 70%;
+        height: 70%;
+        min-width: 350px;
+        border-radius: 5px;;
+    }
+    #ownVideo{
+        position: absolute;
+        right: 3px;
+        top:3px;
+        max-width: 150px;
+        transform: rotateY(180deg);
+        z-index: 9;
+    }
+    #remoteVideo{
+        max-width: 558px;
+        border-radius: 5px;
+        transform: rotateY(180deg);
+    }
+    .connectConetent{
+        position: relative;
+        width: 70%;
+        height: 28%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        border-top:  2px solid green;
+        margin-top: 3px;;
+    }
+    .hangup{
+        width: 100%;
+        margin-top: 4px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    #getMessage{
+        position: absolute;
+        width: 30%;
+        right: 0px;;
+        top: 0px;
+        height: 100%;
+        border-radius: 5px;
+        border-left: black 2px solid;
+        opacity: 0.6;
+        overflow: auto;
+        background: wheat;
+    }
+</style>
+<script>
+    let ws = new WebSocket('ws://localhost:3000');
+    let account =  document.getElementById('account')
+    let ownVideo =  document.getElementById('ownVideo');
+    let remoteVideo =  document.getElementById('remoteVideo');
+    let callSomeone  = document.getElementById('callSomeone');
+    let sendMsgBtn =  document.getElementById('sendMsgBtn');
+    var dataChannel;
+    var user;
+    var videoConnect;
+    var isCaller = false; 
+    var someone ;
+    var stream;
+    callSomeone.addEventListener('click',function(e){
+        connect();
+    })
+    sendMsgBtn.addEventListener("click", function (event) {  // 点击发送按钮发送消息
+        if(someone === undefined){
+            alert('您还未与人连接')
+            return 
+        }
+        if(user === undefined){
+            alert('用户未登录')
+            return 
+        } 
+        console.log("send message");
+        var val = document.getElementById('messageValue').value; 
+        dataChannel.send(val); 
+    });
+    function login() {
+        user = account.value;
+        if(user.length < 1 ){
+            alert('名字太短')
+            return false
+        }
+        let type = 'login';
+        let message = {
+            type:type,
+        }
+        sendMessage(message); //message = {type:'login',user:'xxxx'}
+    }
+    ws.onopen =  function(e) {
+        console.log('start connecting to server')
+    }
+    function sendMessage(message) { // 总发送方法
+        if(user !== undefined) {
+            message.from = user;  // 消息发起人
+            message.call = someone; // 消息传送到谁
+        }
+        ws.send(JSON.stringify(message))
+    }
+    ws.onmessage =  function(e) {
+        let data;
+        try{
+            data =  JSON.parse(e.data);
+        }catch(e){
+            console.log('消息转化错误')
+        }
+        switch(data.type){
+            case 'login':
+                console.log('login');
+                judgeLogin(data);
+                break;
+            case 'offer':
+                console.log('offer');
+                handleOffer(data);
+                break;
+            case 'answer':
+                console.log('answer');
+                handleAnswer(data.answer);
+                break;
+            case "candidate": 
+                console.log('收到来自 ' + data.from + ' 的candidate')
+                console.log(data);
+                handleCandidate(data.candidate); 
+                break; 
+            case 'leave':
+                leave();
+                break;
+            case 'error':
+                console.log('error')
+                console.log(data.message) //{type:'error',message:'xx'}
+            default:
+                break;
+        }
+    }
+    function judgeLogin(data){ 
+        if(data.success === true) { // data = {type:'login',success:true,user:'xxx'}
+            console.log('连接成功');
+            console.log(data.user + '上线了');
+            if(user === data.user){ // 有人上线了
+                camarerOpen();
+            }
+            let message = '来自系统的消息：' + data.user + ' 上线了' 
+            addpendMessage(message);
+        }else {
+            console.log('连接失败，名字重复') // data = {type:'login',false}
+        }
+    }
+    function handleOffer(data){
+        if(data.success === false) { // {type:'offer',success:false,message:'xxx'}
+            alert(data.message)
+            return false;
+        }
+        if(data.from){
+            someone =  data.from;
+            console.log(data.from + '想和您进行视频');
+            videoConnect.setRemoteDescription(new RTCSessionDescription(data.offer));
+            videoConnect.createAnswer(function(answer){
+                videoConnect.setLocalDescription(answer); 
+                let message = {
+                    type:'answer',
+                    answer:answer,
+                }
+                sendMessage(message);
+            },function(err){
+                console.log(err);
+                console.log('创建answer失败')
+            })
+        }
+    }
+    function handleAnswer(answer){ // 收到应答的答案
+        videoConnect.setRemoteDescription(new RTCSessionDescription(answer)); 
+    }
+    function handleCandidate(user){
+        videoConnect.addIceCandidate(new RTCIceCandidate(user));
+    }
+    function connect(){ // 创建offer给想要视频的人
+        someone =  document.getElementById('callones').value;
+        if(user === undefined || someone.length < 1){
+            alert('用户未登录或无连接人物')
+            return false
+        }
+        isCaller = true;
+        if(videoConnect === undefined && videoConnect === null) {
+            createRTCPeerConnection();
+            useChannel();
+        }
+        videoConnect.createOffer(function(offer){
+            let message = {
+                type:'offer',
+                offer:offer
+            }
+            sendMessage(message); // message = {type:'offer',call:'xxx',user:'xxxx'}
+            videoConnect.setLocalDescription(offer);
+        },function(err){
+            console.log(err);
+            console.log('连接时出错');
+        });
+       
+    }
+    function camarerOpen(){ // 打开摄像头
+        let videoConfig =  {audio:false,video:true}
+        let camarer =  navigator.mediaDevices.getUserMedia(videoConfig); // 获取媒体权限
+        camarer.then((mediaStream)=>{
+            ownVideo.srcObject = mediaStream;
+            stream = mediaStream;
+            ownVideo.onloadedmetadata =  function(e){
+                ownVideo.play();
+            }
+            createRTCPeerConnection();
+            useChannel();
+            
+        }).catch(err=>{
+            console.log(err)
+        })
+    }
+    function createRTCPeerConnection(){ // 创建对点
+        var configuration = { 
+            "iceServers": [{ "url": "stun:stun2.1.google.com:19302" }]
+        }; 
+        videoConnect = new webkitRTCPeerConnection(configuration);
+        videoConnect.addStream(stream);
+        videoConnect.onaddstream = function (e) { 
+            console.log('加载远程视频流')
+            remoteVideo.srcObject = e.stream ; 
+            remoteVideo.play();
+        };
+        videoConnect.onicecandidate = function (event) { 
+            console.log('发送给谁' + someone);
+            if (event.candidate) { 
+                sendMessage({ 
+                    type: 'candidate', 
+                    candidate: event.candidate,
+                    call: someone
+                }); 
+            } 
+        };  
+    }
+    function useChannel(){  // 使用信道
+        var dataChannelOptions = {  // 果然不能少设置一些东西
+            reliable:true , 
+            negotiated: true, 
+            id: 0
+        }; 
+        dataChannel = videoConnect.createDataChannel("myDataChannel", dataChannelOptions); // 打开信道收发消息
+        dataChannel.onerror = function (error) { 
+            console.log("Error:", error); 
+            addpendMessage(error)
+        };
+        dataChannel.onmessage = function (event) { 
+            let message = '来自 '+ someone+ ' 的信息 : ' + event.data;
+            addpendMessage(message)
+            console.log("Got message:", event.data); 
+        };  
+    }
+    function addpendMessage(message) { // 往消息中加入消息
+        let messageContent = document.getElementById('getMessage');
+        messageContent.classList.add('changeColor');
+        let messageP =  document.createElement('p');
+        messageP.innerText = message
+        messageContent.appendChild(messageP);
+        setTimeout(()=>{
+            let messageContent = document.getElementById('getMessage');
+            messageContent.classList.remove('changeColor');
+        },1000)
+    }
+    function hangup(){ // 挂断视频通信
+        if(someone === undefined){
+            alert('没人连接，无需挂断')
+            return ;
+        }
+        let message = {
+            type:'leave'
+        }
+        sendMessage(message);
+        leave();
+    }
+    function leave(){ // 离开
+        someone = null; 
+        remoteVideo.srcObject = null; 
+        dataChannel.close(); // 关闭信道
+        videoConnect.close();  // 关闭视频链接
+        videoConnect.onicecandidate = null; 
+        videoConnect.onaddstream = null; 
+    }
+</script>
